@@ -27,6 +27,7 @@ namespace Autobackuper
         private readonly Config config = Config.Load();
         readonly Dispatcher mainDispatcher = Dispatcher.CurrentDispatcher;
         readonly List<FileSystemWatcher> watchers = new List<FileSystemWatcher>();
+        private readonly string tempDir = Path.Combine(Path.GetTempPath(), "AutoBackuper");
 
         public MainForm()
         {
@@ -113,6 +114,13 @@ namespace Autobackuper
                 Log(e.FullPath + " - " + e.ChangeType);
                 if (e.ChangeType != WatcherChangeTypes.Deleted)
                 {
+                    if (!Directory.Exists(tempDir))
+                    {
+                        Directory.CreateDirectory(tempDir);
+                    }
+
+                    string tempPath = Path.Combine(tempDir, e.Name + "_temp" + DateTime.Now.Ticks.ToString());
+
                     try
                     {
                         WatchedFolder watchedFolder = config.WatchedFolders[watchers.IndexOf(sender as FileSystemWatcher)];
@@ -132,7 +140,7 @@ namespace Autobackuper
                             }
                             else
                             {
-                                using (FileStream stream = new FileStream(zipPath, FileMode.Create))
+                                using (FileStream stream = new FileStream(tempPath, FileMode.Create))
                                 {
                                     using (ZipArchive archive = new ZipArchive(stream, ZipArchiveMode.Create))
                                     {
@@ -140,12 +148,21 @@ namespace Autobackuper
                                     }
                                 }
                             }
+                            if (File.Exists(zipPath))
+                            {
+                                File.Delete(zipPath);
+                            }
+                            File.Move(tempPath, zipPath);
                             Log("Successfully saved to " + zipPath);
                         }
                     }
                     catch (Exception ex)
                     {
                         Log("ERROR: " + ex.Message);
+                        if (File.Exists(tempPath))
+                        {
+                            File.Delete(tempPath);
+                        }
                     }
                 }
             }
