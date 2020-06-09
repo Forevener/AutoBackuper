@@ -128,7 +128,7 @@ namespace Autobackuper
                         DirectoryInfo backupDir = new DirectoryInfo(watchedFolder.backupPath);
                         IOrderedEnumerable<FileInfo> backups = backupDir.GetFiles(e.Name + "-AS_B*.zip").OrderBy(fi => fi.LastWriteTime);
                         
-                        if (backups.Count() == 0 || (DateTime.Now - backups.Last().LastWriteTime).TotalSeconds >= watchedFolder.interval)
+                        if (!backups.Any() || (DateTime.Now - backups.Last().LastWriteTime).TotalSeconds >= watchedFolder.interval)
                         {
                             string zipPath = backups.Count() < watchedFolder.backupSlots
                                 ? Path.Combine(backupDir.FullName, e.Name + GetVacantSuffix(backups, watchedFolder.backupSlots))
@@ -136,7 +136,7 @@ namespace Autobackuper
                             
                             if (isDirectory)
                             {
-                                ZipFile.CreateFromDirectory(e.FullPath, zipPath, CompressionLevel.Optimal, true);
+                                ZipFile.CreateFromDirectory(e.FullPath, tempPath, CompressionLevel.Optimal, true);
                             }
                             else
                             {
