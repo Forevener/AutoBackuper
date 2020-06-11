@@ -6,6 +6,7 @@ using System.ComponentModel;
 using System.Data;
 using System.Diagnostics;
 using System.Drawing;
+using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.IO.Packaging;
@@ -22,12 +23,16 @@ namespace Autobackuper
     public partial class MainForm : Form
     {
         readonly string appPath = "\"" + Application.ExecutablePath + "\"";
-        readonly RegistryKey keyAutoStart = Registry.CurrentUser.OpenSubKey("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", true);
+        readonly string regAutoStart = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run";
         private FormWindowState previousWindowState = FormWindowState.Normal;
         private readonly Config config = Config.Load();
         readonly Dispatcher mainDispatcher = Dispatcher.CurrentDispatcher;
         readonly List<FileSystemWatcher> watchers = new List<FileSystemWatcher>();
         private readonly string tempDir = Path.Combine(Path.GetTempPath(), "AutoBackuper");
+        
+        const string SUFFIX = "-AB_B";
+        const int MAX_RETRIES = 1000;
+        const int RETRY_DELAY = 1;
 
         public MainForm()
         {
@@ -45,19 +50,22 @@ namespace Autobackuper
             {
                 UpdateDataGrid();
             }
-            
-            object keyValue = keyAutoStart.GetValue("AutoBackuper");
-            if (keyValue == null)
+
+            using (RegistryKey keyAutoStart = Registry.CurrentUser.OpenSubKey(regAutoStart, true))
             {
-                checkBoxAutostart.Checked = false;
-            }
-            else
-            {
-                checkBoxAutostart.Checked = true;
-                if (!keyValue.ToString().StartsWith(appPath, StringComparison.Ordinal))
+                object keyValue = keyAutoStart.GetValue("AutoBackuper");
+                if (keyValue == null)
                 {
-                    keyAutoStart.SetValue("AutoBackuper", appPath);
-                    Log("Application directory have changed, updating registry key");
+                    checkBoxAutostart.Checked = false;
+                }
+                else
+                {
+                    checkBoxAutostart.Checked = true;
+                    if (!keyValue.ToString().StartsWith(appPath, StringComparison.Ordinal))
+                    {
+                        keyAutoStart.SetValue("AutoBackuper", appPath);
+                        Log("Application directory have changed, updating registry key");
+                    }
                 }
             }
             
@@ -82,7 +90,7 @@ namespace Autobackuper
         {
             if (e.ColumnIndex == 0)
             {
-                Process.Start(config.WatchedFolders[e.RowIndex].folder);
+                Process.Start(config.WatchedFolders[e.RowIndex].Folder);
             }
         }
 
@@ -94,7 +102,7 @@ namespace Autobackuper
             }
             foreach (WatchedFolder f in config.WatchedFolders)
             {
-                AddWatcher(f.folder);
+                AddWatcher(f.Folder);
             }
         }
 
@@ -109,7 +117,7 @@ namespace Autobackuper
 
         private void Watcher_Alarm(object sender, FileSystemEventArgs e)
         {
-            if (!e.Name.Contains("-AS_B"))
+            if (!e.Name.Contains(SUFFIX))
             {
                 Log(e.FullPath + " - " + e.ChangeType);
                 if (e.ChangeType != WatcherChangeTypes.Deleted)
@@ -119,18 +127,18 @@ namespace Autobackuper
                         Directory.CreateDirectory(tempDir);
                     }
 
-                    string tempPath = Path.Combine(tempDir, e.Name + "_temp" + DateTime.Now.Ticks.ToString());
+                    string tempPath = Path.Combine(tempDir, e.Name + "_temp" + DateTime.Now.Ticks.ToString(CultureInfo.CurrentCulture));
 
                     try
                     {
                         WatchedFolder watchedFolder = config.WatchedFolders[watchers.IndexOf(sender as FileSystemWatcher)];
-                        DirectoryInfo backupDir = new DirectoryInfo(watchedFolder.backupPath);
-                        IOrderedEnumerable<FileInfo> backups = backupDir.GetFiles(e.Name + "-AS_B*.zip").OrderBy(fi => fi.LastWriteTime);
+                        DirectoryInfo backupDir = new DirectoryInfo(watchedFolder.BackupPath);
+                        IOrderedEnumerable<FileInfo> backups = backupDir.GetFiles(e.Name + SUFFIX + "*.zip").OrderBy(fi => fi.LastWriteTime);
                         
-                        if (!backups.Any() || (DateTime.Now - backups.Last().LastWriteTime).TotalSeconds >= watchedFolder.interval)
+                        if (!backups.Any() || (DateTime.Now - backups.Last().LastWriteTime).TotalSeconds >= watchedFolder.Interval)
                         {
-                            string zipPath = backups.Count() < watchedFolder.backupSlots
-                                ? Path.Combine(backupDir.FullName, e.Name + GetVacantSuffix(backups, watchedFolder.backupSlots))
+                            string zipPath = backups.Count() < watchedFolder.BackupSlots
+                                ? Path.Combine(backupDir.FullName, e.Name + GetVacantSuffix(backups, watchedFolder.BackupSlots))
                                 : backups.First().FullName;
                             
                             // is it a file?
@@ -140,37 +148,13 @@ namespace Autobackuper
                                 {
                                     using (ZipArchive archive = new ZipArchive(stream, ZipArchiveMode.Create))
                                     {
-                                        while (true)
-                                        {
-                                            try
-                                            {
-                                                archive.CreateEntryFromFile(e.FullPath, e.Name, CompressionLevel.Optimal);
-                                                break;
-                                            }
-                                            catch (IOException)
-                                            {
-                                                Log(e.FullPath + " is locked, retrying");
-                                                Thread.Sleep(1);
-                                            }
-                                        }
+                                        RetryIO(delegate () { archive.CreateEntryFromFile(e.FullPath, e.Name, CompressionLevel.Optimal); }, e.FullPath);
                                     }
                                 }
                             }
                             else
                             {
-                                while (true)
-                                {
-                                    try
-                                    {
-                                        ZipFile.CreateFromDirectory(e.FullPath, tempPath, CompressionLevel.Optimal, true);
-                                        break;
-                                    }
-                                    catch (IOException)
-                                    {
-                                        Log(e.FullPath + " is locked, retrying");
-                                        Thread.Sleep(1);
-                                    }
-                                }
+                                RetryIO(delegate () { ZipFile.CreateFromDirectory(e.FullPath, tempPath, CompressionLevel.Optimal, true); }, e.FullPath);
                             }
 
                             if (File.Exists(zipPath))
@@ -207,9 +191,26 @@ namespace Autobackuper
             int[] used = new int[backups.Count()];
             for (int i = 0; i < used.Length; i++)
             {
-                used[i] = int.Parse(backups.ElementAt(i).Name.Split(new string[] { "-AS_B" }, StringSplitOptions.None).Last().Split(new char[] { '.' }).First());
+                used[i] = int.Parse(backups.ElementAt(i).Name.Split(new string[] { SUFFIX }, StringSplitOptions.None).Last().Split(new char[] { '.' }).First(), CultureInfo.CurrentCulture);
             }
-            return "-AS_B" + Enumerable.Range(1, total).Except(used).Min().ToString() + ".zip";
+            return SUFFIX + Enumerable.Range(1, total).Except(used).Min().ToString(CultureInfo.CurrentCulture) + ".zip";
+        }
+
+        private void RetryIO(Action action, string path)
+        {
+            for (int i = 0; i < MAX_RETRIES; i++)
+            {
+                try
+                {
+                    action();
+                    break;
+                }
+                catch (IOException)
+                {
+                    Log(path + " is locked, retrying");
+                    Thread.Sleep(RETRY_DELAY);
+                }
+            }
         }
 
         private void CheckBoxStartMin_CheckedChanged(object sender, EventArgs e)
@@ -338,15 +339,18 @@ namespace Autobackuper
 
         private void CheckBoxAutostart_CheckedChanged(object sender, EventArgs e)
         {
-            if (checkBoxAutostart.Checked)
+            using (RegistryKey keyAutoStart = Registry.CurrentUser.OpenSubKey(regAutoStart, true))
             {
-                keyAutoStart.SetValue("AutoBackuper", appPath);
-                Log("Registry key is set");
-            }
-            else
-            {
-                keyAutoStart.DeleteValue("AutoBackuper", false);
-                Log("Registry key is removed");
+                if (checkBoxAutostart.Checked)
+                {
+                    keyAutoStart.SetValue("AutoBackuper", appPath);
+                    Log("Registry key is set");
+                }
+                else
+                {
+                    keyAutoStart.DeleteValue("AutoBackuper", false);
+                    Log("Registry key is removed");
+                }
             }
         }
 
@@ -372,7 +376,7 @@ namespace Autobackuper
                     if (dialog.ShowDialog() == DialogResult.OK)
                     {
                         config.UpdateFolder(index, dialog.WatchedFolder);
-                        watchers[index].Path = dialog.WatchedFolder.folder;
+                        watchers[index].Path = dialog.WatchedFolder.Folder;
                         UpdateDataGrid();
                     }
                 }
@@ -401,7 +405,7 @@ namespace Autobackuper
             dataGridViewMain.Rows.Clear();
             foreach (WatchedFolder wf in config.WatchedFolders)
             {
-                dataGridViewMain.Rows.Add(new object[] { wf.folder, wf.interval });
+                dataGridViewMain.Rows.Add(new object[] { wf.Folder, wf.Interval });
             }
             dataGridViewMain.Rows[index].Selected = true;
             dataGridViewMain.CurrentCell = dataGridViewMain.Rows[index].Cells[0];
@@ -414,7 +418,7 @@ namespace Autobackuper
                 if (dialog.ShowDialog() == DialogResult.OK)
                 {
                     config.AddFolder(dialog.WatchedFolder);
-                    AddWatcher(dialog.WatchedFolder.folder);
+                    AddWatcher(dialog.WatchedFolder.Folder);
                     UpdateDataGrid();
                 }
             }

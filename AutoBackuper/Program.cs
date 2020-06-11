@@ -16,7 +16,10 @@ namespace Autobackuper
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new MainForm());
+            using (MainForm m = new MainForm())
+            { 
+                Application.Run(m);
+            }
         }
     }
 }

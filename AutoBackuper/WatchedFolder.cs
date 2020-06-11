@@ -11,15 +11,15 @@ namespace Autobackuper
     public class WatchedFolder
     {
         [XmlAttribute]
-        public string folder;
+        public string Folder { get; set; }
         [XmlAttribute]
-        public int interval;
+        public int Interval { get; set; }
         [XmlAttribute]
-        public string backupPath;
+        public string BackupPath { get; set; }
         [XmlAttribute]
-        public int backupSlots;
+        public int BackupSlots { get; set; }
         [XmlAttribute]
-        public StorageType storageType;
+        public StorageType StorageType { get; set; }
 
         public WatchedFolder()
         { 

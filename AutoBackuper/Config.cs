@@ -70,7 +70,7 @@ namespace Autobackuper
         }
 
         [XmlArray]
-        public List<WatchedFolder> WatchedFolders = new List<WatchedFolder>();
+        public List<WatchedFolder> WatchedFolders { get; } = new List<WatchedFolder>();
 
         public Config()
         {

@@ -13,9 +13,9 @@ namespace Autobackuper
 {
     public partial class WatchedFolderDialog : Form
     {
-        public WatchedFolder WatchedFolder;
         private readonly bool[] pathsOK = new bool[] { false, false };
         private readonly List<ToolTip> toolTips = new List<ToolTip>(2);
+        public WatchedFolder WatchedFolder { get; set; }
 
         public WatchedFolderDialog(WatchedFolder folder)
         {
@@ -37,11 +37,11 @@ namespace Autobackuper
 
             if (folder != null)
             {
-                textBoxWatched.Text = folder.folder;
-                comboBoxType.SelectedIndex = (int)folder.storageType;
-                textBoxBackup.Text = folder.backupPath;
-                numericUpDownInterval.Value = folder.interval;
-                numericUpDownSlots.Value = folder.backupSlots;
+                textBoxWatched.Text = folder.Folder;
+                comboBoxType.SelectedIndex = (int)folder.StorageType;
+                textBoxBackup.Text = folder.BackupPath;
+                numericUpDownInterval.Value = folder.Interval;
+                numericUpDownSlots.Value = folder.BackupSlots;
             }
             else
             {
@@ -109,11 +109,11 @@ namespace Autobackuper
         {
             WatchedFolder = new WatchedFolder()
             {
-                folder = textBoxWatched.Text,
-                storageType = (StorageType)comboBoxType.SelectedIndex,
-                backupPath = textBoxBackup.Text,
-                interval = Convert.ToInt32(numericUpDownInterval.Value),
-                backupSlots = Convert.ToInt32(numericUpDownSlots.Value)
+                Folder = textBoxWatched.Text,
+                StorageType = (StorageType)comboBoxType.SelectedIndex,
+                BackupPath = textBoxBackup.Text,
+                Interval = Convert.ToInt32(numericUpDownInterval.Value),
+                BackupSlots = Convert.ToInt32(numericUpDownSlots.Value)
             };
         }
 
