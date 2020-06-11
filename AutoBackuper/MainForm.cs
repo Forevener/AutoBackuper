@@ -54,7 +54,7 @@ namespace Autobackuper
             else
             {
                 checkBoxAutostart.Checked = true;
-                if (!keyValue.ToString().StartsWith(appPath))
+                if (!keyValue.ToString().StartsWith(appPath, StringComparison.Ordinal))
                 {
                     keyAutoStart.SetValue("AutoBackuper", appPath);
                     Log("Application directory have changed, updating registry key");
@@ -124,7 +124,6 @@ namespace Autobackuper
                     try
                     {
                         WatchedFolder watchedFolder = config.WatchedFolders[watchers.IndexOf(sender as FileSystemWatcher)];
-                        bool isDirectory = !File.Exists(e.FullPath);
                         DirectoryInfo backupDir = new DirectoryInfo(watchedFolder.backupPath);
                         IOrderedEnumerable<FileInfo> backups = backupDir.GetFiles(e.Name + "-AS_B*.zip").OrderBy(fi => fi.LastWriteTime);
                         
@@ -134,24 +133,51 @@ namespace Autobackuper
                                 ? Path.Combine(backupDir.FullName, e.Name + GetVacantSuffix(backups, watchedFolder.backupSlots))
                                 : backups.First().FullName;
                             
-                            if (isDirectory)
-                            {
-                                ZipFile.CreateFromDirectory(e.FullPath, tempPath, CompressionLevel.Optimal, true);
-                            }
-                            else
+                            // is it a file?
+                            if (File.Exists(e.FullPath))
                             {
                                 using (FileStream stream = new FileStream(tempPath, FileMode.Create))
                                 {
                                     using (ZipArchive archive = new ZipArchive(stream, ZipArchiveMode.Create))
                                     {
-                                        archive.CreateEntryFromFile(e.FullPath, e.Name, CompressionLevel.Optimal);
+                                        while (true)
+                                        {
+                                            try
+                                            {
+                                                archive.CreateEntryFromFile(e.FullPath, e.Name, CompressionLevel.Optimal);
+                                                break;
+                                            }
+                                            catch (IOException)
+                                            {
+                                                Log(e.FullPath + " is locked, retrying");
+                                                Thread.Sleep(1);
+                                            }
+                                        }
                                     }
                                 }
                             }
+                            else
+                            {
+                                while (true)
+                                {
+                                    try
+                                    {
+                                        ZipFile.CreateFromDirectory(e.FullPath, tempPath, CompressionLevel.Optimal, true);
+                                        break;
+                                    }
+                                    catch (IOException)
+                                    {
+                                        Log(e.FullPath + " is locked, retrying");
+                                        Thread.Sleep(1);
+                                    }
+                                }
+                            }
+
                             if (File.Exists(zipPath))
                             {
                                 File.Delete(zipPath);
                             }
+
                             File.Move(tempPath, zipPath);
                             Log("Successfully saved to " + zipPath);
                         }
@@ -159,10 +185,18 @@ namespace Autobackuper
                     catch (Exception ex)
                     {
                         Log("ERROR: " + ex.Message);
+                    }
+
+                    try
+                    {
                         if (File.Exists(tempPath))
                         {
                             File.Delete(tempPath);
                         }
+                    }
+                    catch
+                    {
+                        // do nothing really
                     }
                 }
             }

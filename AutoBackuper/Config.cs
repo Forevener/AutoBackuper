@@ -83,7 +83,7 @@ namespace Autobackuper
             {
                 try
                 {
-                    using (TextWriter writer = new StreamWriter("config.xml"))
+                    using (XmlWriter writer = XmlWriter.Create("config.xml", new XmlWriterSettings()))
                     {
                         XmlSerializer serializer = new XmlSerializer(typeof(Config));
                         serializer.Serialize(writer, this);
@@ -103,7 +103,7 @@ namespace Autobackuper
             {
                 try
                 {
-                    using (TextReader reader = new StreamReader("config.xml"))
+                    using (XmlReader reader = XmlReader.Create("config.xml", new XmlReaderSettings()))
                     {
                         XmlSerializer serializer = new XmlSerializer(typeof(Config));
                         return serializer.Deserialize(reader) as Config;
