@@ -68,7 +68,7 @@ namespace Autobackuper
             RefreshBackupFolder();
             foreach (TextBox textBox in tableLayoutPanel1.Controls.OfType<TextBox>().Where(t => t.Tag != null))
             {
-                int index = Convert.ToInt32(textBox.Tag);
+                int index = Convert.ToInt32(textBox.Tag, System.Globalization.CultureInfo.InvariantCulture);
                 pathsOK[index] = Directory.Exists(textBox.Text);
 
                 if (!pathsOK[index])
